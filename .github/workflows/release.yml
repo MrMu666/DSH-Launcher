@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# tauri-action 需要写权限来创建 GitHub Release 并上传安装包。
+permissions:
+  contents: write
+
 jobs:
   build-tauri:
     strategy:
