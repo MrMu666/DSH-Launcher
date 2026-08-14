@@ -1,0 +1,20 @@
+[package]
+name = "dsh-launcher"
+version = "0.1.0"
+description = "A Tauri launcher that starts `npx @deepseek-ai/dsh web` and jumps to the DSH web UI once it is serving."
+edition = "2021"
+
+[lib]
+name = "dsh_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

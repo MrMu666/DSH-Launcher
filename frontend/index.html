@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DSH Launcher</title>
+    <link rel="stylesheet" href="src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="titlebar" data-tauri-drag-region="deep">
+        <div class="title">DSH 启动器</div>
+        <div class="urlbar">
+          <select id="url-select" aria-label="地址"></select>
+          <button class="url-btn" id="url-add" title="添加地址" aria-label="添加地址">＋</button>
+          <button class="url-btn" id="url-del" title="删除该地址" aria-label="删除该地址" disabled>－</button>
+          <input
+            id="url-input"
+            class="url-input"
+            type="text"
+            placeholder="输入 IP:端口 或 http(s):// 地址"
+            autocomplete="off"
+            spellcheck="false"
+            hidden
+          />
+        </div>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="refresh-btn" title="强制刷新网页" aria-label="强制刷新网页" disabled>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+        </button>
+        <div class="win-controls">
+          <button class="win-btn" id="min-btn" title="最小化" aria-label="最小化">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+          <button class="win-btn" id="max-btn" title="最大化" aria-label="最大化">
+            <svg id="max-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="5" width="14" height="14" rx="1.5" />
+            </svg>
+            <svg id="restore-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none">
+              <rect x="4" y="9" width="11" height="11" rx="1.5" />
+              <path d="M9 5h6a2 2 0 0 1 2 2v6" />
+            </svg>
+          </button>
+          <button class="win-btn win-btn-close" id="close-btn" title="关闭" aria-label="关闭">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="terminal" id="terminal">
+        <div class="log" id="log"></div>
+        <div class="cursor-line">
+          <span class="prompt">$</span>
+          <span class="cursor"></span>
+        </div>
+      </main>
+
+      <footer class="statusbar">
+        <span class="status-dot starting" id="status-dot"></span>
+        <span id="status-text">正在启动 DSH…</span>
+      </footer>
+    </div>
+
+    <script src="src/main.js"></script>
+  </body>
+</html>
