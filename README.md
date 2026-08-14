@@ -4,7 +4,7 @@
 
 一个用 [Tauri 2](https://tauri.app) 编写的 **DSH 桌面启动器**：一键拉起本机 `@deepseek-ai/dsh` Web 服务，并在常驻顶栏下方展示 DSH 网页；没有本机 DSH 时，也能直接连接其他机器的 `ip:3080`。
 
-![icon](icon-source.svg)
+<img src="icon-source.svg" width="307" height="307" alt="DSH Launcher icon">
 
 ## 功能特性
 

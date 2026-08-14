@@ -4,7 +4,7 @@
 
 A **DSH desktop launcher** built with [Tauri 2](https://tauri.app): it starts the local `@deepseek-ai/dsh` web service with one click and shows the DSH page below a persistent top bar. When no local DSH is available, you can still connect to another machine's `ip:3080`.
 
-![icon](icon-source.svg)
+<img src="icon-source.svg" width="307" height="307" alt="DSH Launcher icon">
 
 ## Features
 
