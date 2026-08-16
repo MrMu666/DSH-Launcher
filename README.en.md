@@ -45,10 +45,10 @@ npm run dev        # equivalent to tauri dev (debug mode)
 
 ```bash
 npm run build       # full bundle (NSIS/MSI installers on Windows)
-npm run build:exe   # executable only, no installer (tauri build --no-bundle)
+npm run build:exe   # executable only, no installer (tauri build --no-bundle) — the default deliverable
 ```
 
-Artifacts are written to `src-tauri/target/release/`.
+Artifacts are written to `src-tauri/target/release/`. The default deliverable is the single-file `dsh-launcher.exe`; `npm run build` (NSIS/MSI installers) is only for when an installer is needed.
 
 ### Build all three platforms via CI
 

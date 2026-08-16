@@ -45,10 +45,10 @@ npm run dev        # 等价于 tauri dev（debug 模式）
 
 ```bash
 npm run build       # 完整打包（Windows 生成 NSIS/MSI 安装包）
-npm run build:exe   # 仅编译可执行文件，跳过安装包（tauri build --no-bundle）
+npm run build:exe   # 仅编译可执行文件，跳过安装包（tauri build --no-bundle）——默认交付用这个
 ```
 
-构建产物位于 `src-tauri/target/release/`。
+构建产物位于 `src-tauri/target/release/`。默认交付单文件 `dsh-launcher.exe`；`npm run build`（含 NSIS/MSI 安装包）仅在需要安装包时使用。
 
 ### 用 CI 出三平台安装包
 
