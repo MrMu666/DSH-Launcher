@@ -314,12 +314,21 @@ fn start_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     spawn_dsh_child(&app, &state)
 }
 
+/// Closes the DSH child webview so the terminal becomes visible, without
+/// touching the running dsh-web process. Called before showing the restart
+/// confirmation.
+#[tauri::command]
+async fn begin_restart(app: AppHandle) -> Result<(), String> {
+    close_dsh_webview(&app);
+    Ok(())
+}
+
 /// Kills the running dsh-web child process (and only its own process tree —
 /// nothing else the launcher runs), then starts a fresh one. The DSH webview
 /// is closed so the terminal log shows the new startup output; the page
 /// re-opens once `127.0.0.1:3080` appears again.
 #[tauri::command]
-fn restart_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn restart_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let had_child = {
         let mut guard = state.child.lock().map_err(|_| "状态锁异常".to_string())?;
         match guard.take() {
@@ -530,6 +539,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             start_dsh,
+            begin_restart,
             restart_dsh,
             force_reload,
             set_dsh_url,

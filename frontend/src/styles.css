@@ -277,3 +277,65 @@ body,
     opacity: 0.4;
   }
 }
+
+/* Restart confirmation overlay (shown over the terminal) */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 100;
+}
+
+.confirm-overlay[hidden] {
+  display: none;
+}
+
+.confirm-box {
+  min-width: 220px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 18px 24px 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.confirm-text {
+  color: var(--fg);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.confirm-btn {
+  padding: 6px 22px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #21262d;
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.confirm-btn:hover {
+  background: #30363d;
+}
+
+.confirm-yes {
+  background: #da3633;
+  border-color: #da3633;
+  color: #ffffff;
+}
+
+.confirm-yes:hover {
+  background: #e5534b;
+}

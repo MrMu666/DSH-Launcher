@@ -8,6 +8,9 @@ const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const refreshBtn = document.getElementById("refresh-btn");
 const restartBtn = document.getElementById("restart-btn");
+const restartConfirm = document.getElementById("restart-confirm");
+const confirmYes = document.getElementById("confirm-yes");
+const confirmNo = document.getElementById("confirm-no");
 
 // App state:
 //   dshRunning — local DSH web has reported ready (restart button needs it).
@@ -249,11 +252,29 @@ async function boot() {
       }
     });
 
+    // Restart flow: click closes the DSH page first (terminal shows), then a
+    // confirmation appears in the terminal; on confirm dsh-web is killed and
+    // restarted, and the page re-opens once ready.
     restartBtn.addEventListener("click", async () => {
-      if (!confirm("是否重启 dsh-web？")) return;
+      pageOpen = false;
+      updateButtons();
+      try {
+        await invoke("begin_restart"); // close the webview -> terminal visible
+      } catch (err) {
+        pageOpen = true;
+        setStatus("error", "关闭网页失败");
+        appendLine("✘ 关闭网页失败：" + String(err));
+        updateButtons();
+        return;
+      }
+      setStatus("starting", "是否重启 DSH？");
+      restartConfirm.hidden = false;
+    });
+
+    confirmYes.addEventListener("click", async () => {
+      restartConfirm.hidden = true;
       restarting = true;
       dshRunning = false;
-      pageOpen = false;
       setStatus("starting", "正在重启 DSH…");
       appendLine("");
       appendLine("↻ 正在重启 DSH…");
@@ -266,6 +287,13 @@ async function boot() {
         appendLine("✘ 重启失败：" + String(err));
         updateButtons();
       }
+    });
+
+    confirmNo.addEventListener("click", async () => {
+      restartConfirm.hidden = true;
+      setStatus("ready", "已取消重启");
+      appendLine("· 已取消重启");
+      openUrl(urlSelect.value); // reopen the page; dsh-web is still running
     });
 
     appendLine("$ npx @deepseek-ai/dsh web");

@@ -92,6 +92,17 @@
         <span class="status-dot starting" id="status-dot"></span>
         <span id="status-text">正在启动 DSH…</span>
       </footer>
+
+      <!-- Restart confirmation, shown over the terminal after the DSH page closes -->
+      <div class="confirm-overlay" id="restart-confirm" hidden>
+        <div class="confirm-box">
+          <div class="confirm-text">是否重启 dsh-web？</div>
+          <div class="confirm-actions">
+            <button class="confirm-btn confirm-yes" id="confirm-yes">确定</button>
+            <button class="confirm-btn" id="confirm-no">取消</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="src/main.js"></script>
