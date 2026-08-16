@@ -7,6 +7,25 @@ const logEl = document.getElementById("log");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const refreshBtn = document.getElementById("refresh-btn");
+const restartBtn = document.getElementById("restart-btn");
+
+// App state:
+//   dshRunning — local DSH web has reported ready (restart button needs it).
+//   pageOpen    — a page is showing in the child webview (refresh button needs it).
+//   restarting  — a dsh-web restart is in progress.
+let dshRunning = false;
+let pageOpen = false;
+let restarting = false;
+
+// The restart button only makes sense for the local DSH page; the refresh
+// button works whenever a page is showing (fixes it getting stuck disabled
+// after opening a remote address).
+function updateButtons() {
+  const isLocal = urlSelect.value === DEFAULT_URL;
+  restartBtn.hidden = !isLocal;
+  restartBtn.disabled = !isLocal || !dshRunning || restarting;
+  refreshBtn.disabled = !pageOpen;
+}
 
 // Window controls (native title bar is hidden via `decorations: false`).
 const { getCurrentWindow } = window.__TAURI__.window;
@@ -77,6 +96,7 @@ function renderUrls(urls, selected) {
   }
   urlSelect.value = selected;
   urlDel.disabled = selected === DEFAULT_URL;
+  updateButtons();
 }
 
 function rememberUrl(url) {
@@ -103,6 +123,10 @@ async function openUrl(url) {
   rememberUrl(url);
   try {
     await invoke("open_dsh_url", { url });
+    // A page is now showing — the refresh button must become clickable even
+    // when this is a remote address and `dsh-ready` never fired for it.
+    pageOpen = true;
+    updateButtons();
   } catch (err) {
     setStatus("error", "地址打开失败");
     appendLine("✘ 地址打开失败：" + String(err));
@@ -198,14 +222,22 @@ async function boot() {
       appendLine("");
       appendLine("✔ 检测到 127.0.0.1:3080 开始正常服务");
       appendLine("→ 网页已在顶栏下方打开");
-      refreshBtn.disabled = false;
+      dshRunning = true;
+      pageOpen = true;
+      restarting = false;
+      updateButtons();
     });
 
     await listen("dsh-exit", (event) => {
       const code = event.payload;
+      // A dsh-exit during a restart means the *new* child failed (the old one
+      // was taken out of state before being killed, so it never emits here).
+      restarting = false;
       setStatus("error", "进程已退出（code: " + (code == null ? "—" : code) + "）");
       appendLine("✘ npx 进程已退出（code=" + (code == null ? "未知" : code) + "）");
-      refreshBtn.disabled = true;
+      dshRunning = false;
+      pageOpen = false;
+      updateButtons();
     });
 
     refreshBtn.addEventListener("click", async () => {
@@ -214,6 +246,25 @@ async function boot() {
       } catch (err) {
         setStatus("error", "刷新失败");
         appendLine("✘ 刷新失败：" + String(err));
+      }
+    });
+
+    restartBtn.addEventListener("click", async () => {
+      if (!confirm("是否重启 dsh-web？")) return;
+      restarting = true;
+      dshRunning = false;
+      pageOpen = false;
+      setStatus("starting", "正在重启 DSH…");
+      appendLine("");
+      appendLine("↻ 正在重启 DSH…");
+      updateButtons();
+      try {
+        await invoke("restart_dsh");
+      } catch (err) {
+        restarting = false;
+        setStatus("error", "重启失败");
+        appendLine("✘ 重启失败：" + String(err));
+        updateButtons();
       }
     });
 

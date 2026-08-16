@@ -13,14 +13,26 @@ A **DSH desktop launcher** built with [Tauri 2](https://tauri.app): it starts th
 - 🧭 **Frameless top bar** — drag anywhere to move, double-click to maximize, with minimize / maximize / close buttons on the right
 - 🔗 **Address dropdown** (top-bar centre) — defaults to `127.0.0.1:3080` (cannot be removed); add and remember other machines' `ip:3080`, switch on selection, and it restores the last used address on next launch
 - ⟳ **Force refresh** — reload the page anytime from the top bar (disabled while DSH is not ready)
+- 🔄 **Restart DSH** — when the page is the local `127.0.0.1:3080`, a red ▷ button appears left of the refresh button; click it (with a confirmation dialog) to restart dsh-web in one go
+- 📌 **Tray resident** — closing the window keeps the app running in the background (DSH keeps serving); only quitting from the tray icon exits the app
 - 🛡️ **Process-tree management** — on Windows a Job Object guarantees the DSH child process dies with the launcher no matter how it exits (including force-kill or crash), leaving no orphaned node processes
 - ⚙️ **Cross-platform CI** — a built-in GitHub Actions workflow builds Windows, macOS, and Linux installers on push / tag
 
-## Requirements
+## Install & use (no dependencies needed)
+
+Just download the installer / executable for your platform and run it — **Node.js and Rust are NOT required to use the app**.
+
+- Windows: run the NSIS / MSI installer, or run `dsh-launcher.exe` directly
+- macOS / Linux: run the corresponding installer
+- On Windows, [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) is required (usually pre-installed on Win10/11)
+
+## Development & building (dependencies needed)
+
+The following are **only for developing and building from source**, unrelated to installing the app:
 
 - [Node.js](https://nodejs.org) (with `npx` on `PATH`)
 - [Rust](https://rustup.rs) (with `cargo`)
-- On Windows: [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) (usually pre-installed on Win10/11)
+- On Windows, [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) is needed to run the dev build (usually pre-installed on Win10/11)
 
 ## Development
 
@@ -57,6 +69,8 @@ git tag v0.1.0 && git push origin v0.1.0   # on a tag, creates a draft release w
   - On the next launch the last used address is restored.
 - **Remote connections**: even without `@deepseek-ai/dsh` installed locally, you can add and open another machine's `ip:3080`.
 - **Force refresh**: click ⟳ while the DSH page is shown to reload it (disabled until ready).
+- **Restart DSH**: only when the current page is `127.0.0.1:3080` does a red ▷ button appear left of the refresh button. Clicking it asks for confirmation to restart dsh-web; on confirm it kills and restarts DSH, the terminal shows the new startup log, and the page re-opens once ready.
+- **Tray resident**: the window close button only hides the window — the app keeps running in the background (DSH keeps serving). Right-click the whale tray icon → "Show main window" or "Exit"; **only "Exit" in the tray menu quits the program**.
 
 ## How it works
 

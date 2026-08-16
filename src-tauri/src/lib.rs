@@ -10,6 +10,8 @@ use std::{
 };
 
 use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl, WindowEvent,
 };
 
@@ -53,6 +55,12 @@ impl Default for AppState {
         }
     }
 }
+
+/// Holds the tray icon so it stays alive for the whole app lifetime
+/// (dropping the handle removes the icon from the system tray).
+/// The field is intentionally never read — merely owning it keeps it alive.
+#[allow(dead_code)]
+struct TrayHandle(TrayIcon);
 
 /// Kill-on-close Job Object: guarantees the whole child process tree dies
 /// together with the launcher, no matter how the launcher exits (graceful
@@ -232,15 +240,9 @@ where
     });
 }
 
-#[tauri::command]
-fn start_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    {
-        let guard = state.child.lock().map_err(|_| "状态锁异常".to_string())?;
-        if guard.is_some() {
-            return Err("DSH 进程已在运行中".into());
-        }
-    }
-
+/// Spawns a fresh `npx @deepseek-ai/dsh web` child, wires up its exit monitor
+/// and output streams. Shared by `start_dsh` and `restart_dsh`.
+fn spawn_dsh_child(app: &AppHandle, state: &State<'_, AppState>) -> Result<(), String> {
     let mut cmd = build_command();
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -296,9 +298,49 @@ fn start_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
 
     // Stream both stdout and stderr into the simulated terminal.
     stream_reader(app.clone(), BufReader::new(stdout), state.ready.clone());
-    stream_reader(app, BufReader::new(stderr), state.ready.clone());
+    stream_reader(app.clone(), BufReader::new(stderr), state.ready.clone());
 
     Ok(())
+}
+
+#[tauri::command]
+fn start_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let guard = state.child.lock().map_err(|_| "状态锁异常".to_string())?;
+        if guard.is_some() {
+            return Err("DSH 进程已在运行中".into());
+        }
+    }
+    spawn_dsh_child(&app, &state)
+}
+
+/// Kills the running dsh-web child process (and only its own process tree —
+/// nothing else the launcher runs), then starts a fresh one. The DSH webview
+/// is closed so the terminal log shows the new startup output; the page
+/// re-opens once `127.0.0.1:3080` appears again.
+#[tauri::command]
+fn restart_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let had_child = {
+        let mut guard = state.child.lock().map_err(|_| "状态锁异常".to_string())?;
+        match guard.take() {
+            Some(mut child) => {
+                drop(guard);
+                terminate_child(&mut child);
+                true
+            }
+            None => false,
+        }
+    };
+    if !had_child {
+        return Err("DSH 未在运行".into());
+    }
+
+    // The old child was taken out of state, so the old exit-monitor thread
+    // breaks silently (no spurious `dsh-exit`). Reset readiness and hide the
+    // webview so the terminal becomes visible again.
+    state.ready.store(false, Ordering::SeqCst);
+    close_dsh_webview(&app);
+    spawn_dsh_child(&app, &state)
 }
 
 /// Force-reloads the DSH webview from the top bar's refresh button.
@@ -488,15 +530,60 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             start_dsh,
+            restart_dsh,
             force_reload,
             set_dsh_url,
             open_dsh_url,
             check_deps
         ])
+        .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().cloned().ok_or("缺少窗口图标")?)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .tooltip("DSH 启动器")
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+            // Keep the tray alive for the whole app lifetime.
+            app.manage(TrayHandle(tray));
+            Ok(())
+        })
         .on_window_event(|window, event| {
-            // Keep the DSH child webview filling the area below the top bar.
-            if matches!(event, WindowEvent::Resized(_)) {
-                relayout_dsh_webview(window);
+            match event {
+                WindowEvent::Resized(_) => relayout_dsh_webview(window),
+                WindowEvent::CloseRequested { api, .. } => {
+                    // Closing hides to the tray; the app keeps running in the
+                    // background. Only the tray menu's "退出" quits the app.
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())

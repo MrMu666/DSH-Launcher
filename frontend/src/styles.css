@@ -152,6 +152,25 @@ body,
   cursor: default;
 }
 
+/* `.icon-btn` sets `display: inline-flex`, which overrides the `hidden`
+   attribute's default `display: none` — restore it explicitly. */
+.icon-btn[hidden] {
+  display: none;
+}
+
+.icon-btn-restart {
+  color: #e11d48;
+}
+
+.icon-btn-restart:hover:not(:disabled) {
+  background: rgba(225, 29, 72, 0.12);
+  color: #be123c;
+}
+
+.icon-btn-restart:active:not(:disabled) {
+  background: rgba(225, 29, 72, 0.2);
+}
+
 .win-controls {
   display: flex;
   align-items: center;

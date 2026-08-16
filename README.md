@@ -13,14 +13,26 @@
 - 🧭 **常驻顶栏**（无系统标题栏）：可按住拖动、双击最大化，右上角有最小化 / 最大化 / 关闭按钮
 - 🔗 **地址下拉框**（顶栏中间）：默认 `127.0.0.1:3080`（不可删除），可添加并记住其他机器的 `ip:3080`，选择即切换打开，下次启动恢复上次使用的地址
 - ⟳ **强制刷新**：顶栏右侧刷新按钮可随时重载网页
+- 🔄 **重启 DSH**：页面是本机 `127.0.0.1:3080` 时，刷新按钮左侧出现红色 ▷ 按钮，点击（有确认框）可一键重启 dsh-web
+- 📌 **托盘驻留**：关闭窗口后程序在后台继续运行（DSH 持续服务），右键托盘图标才能退出程序
 - 🛡️ **进程树管理**：Windows 下用 Job Object 保证启动器无论正常 / 异常退出（含强杀、崩溃），DSH 子进程都随之终止，不残留孤儿 node 进程
 - ⚙️ **跨平台 CI**：内置 GitHub Actions workflow，push / 打 tag 自动构建 Windows、macOS、Linux 安装包
 
-## 环境要求
+## 安装使用（无需环境依赖）
+
+直接下载对应平台的安装包 / 可执行文件即可运行，**不需要安装 Node.js 或 Rust**。
+
+- Windows：运行 NSIS / MSI 安装包，或直接运行 `dsh-launcher.exe`
+- macOS / Linux：运行对应的安装包
+- Windows 需 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Win10/11 通常已自带）
+
+## 开发 / 构建（需要环境依赖）
+
+以下依赖**仅用于从源码开发和构建**，与安装使用无关：
 
 - [Node.js](https://nodejs.org)（含 `npx`，位于 `PATH` 中）
 - [Rust](https://rustup.rs)（含 `cargo`）
-- Windows 下需要 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Win10/11 通常已自带）
+- Windows 下运行开发版需 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)（Win10/11 通常已自带）
 
 ## 开发运行
 
@@ -57,6 +69,8 @@ git tag v0.1.0 && git push origin v0.1.0   # 打 tag 后自动生成三平台安
   - 下次启动自动恢复上次使用的地址。
 - **连接远端**：即使本机没装 `@deepseek-ai/dsh`，也能在地址栏添加并打开其他机器的 `ip:3080`。
 - **强制刷新**：DSH 网页显示时点击 ⟳ 重新加载（未就绪时按钮禁用）。
+- **重启 DSH**：仅当当前页面为 `127.0.0.1:3080` 时，刷新按钮左侧出现红色 ▷ 按钮。点击后弹出确认框询问是否重启 dsh-web；确认后杀掉并重新启动 DSH，终端显示新启动日志，就绪后自动重新打开网页。
+- **托盘驻留**：点击窗口关闭按钮只会隐藏窗口，程序继续在后台运行（DSH 持续服务）。右键系统托盘的鲸鱼图标 →「显示主窗口」或「退出」；**只有托盘菜单的「退出」才能退出程序**。
 
 ## 工作原理
 
