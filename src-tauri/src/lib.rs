@@ -323,6 +323,23 @@ async fn begin_restart(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Hides the main window to the tray without emitting a close request.
+///
+/// The top bar's close button calls this instead of `window.close()`, because
+/// on Windows a real close request destroys the main WebView2 (wry wires
+/// WebView2's `WindowCloseRequested` to destroy the window), which would leave
+/// the tray-restored window without its chrome.
+#[tauri::command]
+fn hide_to_tray(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        w.hide().map_err(|e| e.to_string())
+    } else if let Some(w) = app.get_window("main") {
+        w.hide().map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
+}
+
 /// Kills the running dsh-web child process (and only its own process tree —
 /// nothing else the launcher runs), then starts a fresh one. The DSH webview
 /// is closed so the terminal log shows the new startup output; the page
@@ -531,8 +548,17 @@ fn terminate_child(child: &mut Child) {
 }
 
 /// Shows the main window from the tray, un-minimizing and focusing it.
+///
+/// Note: after a prevented window close on Windows, the *main webview* is
+/// dropped from Tauri's manager while the OS window (and any child webviews)
+/// survive. Fall back to the raw `Window` in that case — showing it still
+/// brings the whole UI back.
 fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    } else if let Some(w) = app.get_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
@@ -553,7 +579,8 @@ pub fn run() {
             force_reload,
             set_dsh_url,
             open_dsh_url,
-            check_deps
+            check_deps,
+            hide_to_tray
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;

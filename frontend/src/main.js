@@ -50,7 +50,10 @@ maxBtn.addEventListener("click", async () => {
   await appWindow.toggleMaximize();
   await updateMaxIcon();
 });
-document.getElementById("close-btn").addEventListener("click", () => appWindow.close());
+// Close hides to the tray via a command rather than window.close(): a real
+// close request on Windows destroys the main WebView2, so the tray-restored
+// window would lose its chrome.
+document.getElementById("close-btn").addEventListener("click", () => invoke("hide_to_tray"));
 // Keep the maximize/restore icon in sync when maximized via the drag region's
 // double-click or the OS (Win+↑ etc.).
 window.addEventListener("resize", () => updateMaxIcon());
