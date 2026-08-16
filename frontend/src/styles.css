@@ -119,6 +119,23 @@ body,
   outline: none;
 }
 
+/* Narrow window: shrink the centred address bar so it never overlaps the
+   title on the left or the window-control buttons on the right. */
+@media (max-width: 860px) {
+  #url-select {
+    max-width: 160px;
+  }
+}
+
+@media (max-width: 720px) {
+  #url-select {
+    max-width: 120px;
+  }
+  .url-input {
+    width: 110px;
+  }
+}
+
 .spacer {
   flex: 1;
 }
