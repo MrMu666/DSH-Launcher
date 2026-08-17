@@ -1,6 +1,6 @@
 {
   "name": "dsh-launcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Tauri launcher that starts `npx @deepseek-ai/dsh web` and jumps to the DSH web UI once it is serving.",
   "private": true,
   "scripts": {
