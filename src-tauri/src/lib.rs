@@ -713,6 +713,13 @@ pub fn run() {
     job_object::init();
 
     let app = tauri::Builder::default()
+        // Single instance: re-running the exe while the app is already running
+        // (e.g. hidden to the tray) focuses the existing window instead of
+        // starting a second instance — so previously-visited pages are reused,
+        // not reloaded.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             start_dsh,
