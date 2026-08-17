@@ -432,7 +432,9 @@ async fn restart_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
     spawn_dsh_child(&app, &state)
 }
 
-/// Force-reloads the currently selected webview from the top bar's refresh button.
+/// Force-reloads the currently selected webview from the top bar's refresh
+/// button. The webview is hidden first so the launcher's "loading" overlay
+/// shows; `on_page_load` (Finished) re-shows it and emits `dsh-page-shown`.
 #[tauri::command]
 fn force_reload(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let target = state
@@ -443,6 +445,7 @@ fn force_reload(app: AppHandle, state: State<'_, AppState>) -> Result<(), String
     let webview = app
         .get_webview(&webview_label_for(&target))
         .ok_or("网页尚未加载")?;
+    let _ = webview.hide();
     webview
         .eval("window.location.reload(true)")
         .map_err(|e| e.to_string())

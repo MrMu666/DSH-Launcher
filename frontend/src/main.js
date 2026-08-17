@@ -262,9 +262,11 @@ async function boot() {
     });
 
     refreshBtn.addEventListener("click", async () => {
+      showPageLoading();
       try {
         await invoke("force_reload");
       } catch (err) {
+        hidePageLoading();
         setStatus("error", "刷新失败");
         appendLine("✘ 刷新失败：" + String(err));
       }
