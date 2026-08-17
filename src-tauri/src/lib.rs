@@ -511,6 +511,68 @@ async fn open_dsh_url(
     Ok(false)
 }
 
+// ---------------------------------------------------------------------------
+// Persistent app config (visited addresses + last used), stored as a JSON file
+// in the per-user cache directory — the mainstream "cache folder in the user
+// directory" approach. The WebView2 profile (HTTP cache, cookies, per-page
+// localStorage) already lives in the same AppData folder and survives restarts.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct AppConfig {
+    urls: Vec<String>,
+    last_url: Option<String>,
+}
+
+fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法获取缓存目录：{e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建缓存目录：{e}"))?;
+    Ok(dir.join("config.json"))
+}
+
+fn read_config(app: &AppHandle) -> AppConfig {
+    let Ok(path) = config_path(app) else {
+        return AppConfig::default();
+    };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    let path = config_path(app)?;
+    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_addresses(app: AppHandle) -> Vec<String> {
+    read_config(&app).urls
+}
+
+#[tauri::command]
+fn save_addresses(app: AppHandle, urls: Vec<String>) -> Result<(), String> {
+    let mut config = read_config(&app);
+    config.urls = urls;
+    write_config(&app, &config)
+}
+
+#[tauri::command]
+fn load_last_url(app: AppHandle) -> Option<String> {
+    read_config(&app).last_url
+}
+
+#[tauri::command]
+fn save_last_url(app: AppHandle, url: String) -> Result<(), String> {
+    let mut config = read_config(&app);
+    config.last_url = Some(url);
+    write_config(&app, &config)
+}
+
 fn run_output(cmdline: &str) -> Option<std::process::Output> {
     #[cfg(target_os = "windows")]
     let mut cmd = {
@@ -660,7 +722,11 @@ pub fn run() {
             set_dsh_url,
             open_dsh_url,
             check_deps,
-            hide_to_tray
+            hide_to_tray,
+            load_addresses,
+            save_addresses,
+            load_last_url,
+            save_last_url
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;

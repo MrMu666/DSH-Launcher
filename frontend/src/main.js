@@ -67,19 +67,19 @@ document.getElementById("close-btn").addEventListener("click", () => invoke("hid
 window.addEventListener("resize", () => updateMaxIcon());
 
 // --- Address dropdown (top-bar centre) --------------------------------
+// Addresses + last used are persisted to a JSON file in the per-user cache
+// directory (`AppData\Local\<id>\cache\config.json`) via the backend — the
+// same "cache folder in the user directory" convention mainstream apps use.
 const DEFAULT_URL = "127.0.0.1:3080";
-const STORAGE_KEY = "dsh-urls";
 const urlSelect = document.getElementById("url-select");
 const urlAdd = document.getElementById("url-add");
 const urlDel = document.getElementById("url-del");
 const urlInput = document.getElementById("url-input");
 let urlEditing = false;
 
-function loadUrls() {
+async function loadUrls() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [DEFAULT_URL];
-    const arr = JSON.parse(raw);
+    const arr = await invoke("load_addresses");
     if (!Array.isArray(arr)) return [DEFAULT_URL];
     const cleaned = arr
       .filter((s) => typeof s === "string" && s.trim().length > 0)
@@ -91,11 +91,11 @@ function loadUrls() {
   }
 }
 
-function saveUrls(urls) {
+async function saveUrls(urls) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(urls));
+    await invoke("save_addresses", { urls });
   } catch (err) {
-    // Storage unavailable — the list just won't persist this run.
+    // Cache unavailable — the list just won't persist this run.
     console.warn("保存地址失败:", err);
   }
 }
@@ -113,16 +113,16 @@ function renderUrls(urls, selected) {
   updateButtons();
 }
 
-function rememberUrl(url) {
+async function rememberUrl(url) {
   try {
-    localStorage.setItem("dsh-last-url", url);
+    await invoke("save_last_url", { url });
   } catch {}
 }
 
 // Set the webview target without opening it yet (used at startup; the webview
 // will spawn there once DSH is ready).
 async function applyUrl(url) {
-  rememberUrl(url);
+  await rememberUrl(url);
   try {
     await invoke("set_dsh_url", { url });
   } catch (err) {
@@ -135,7 +135,7 @@ async function applyUrl(url) {
 // page immediately and shows a "loading" overlay until the new page is ready;
 // already-visited pages restore their preserved instance instantly.
 async function openUrl(url) {
-  rememberUrl(url);
+  await rememberUrl(url);
   showPageLoading();
   try {
     const cached = await invoke("open_dsh_url", { url });
@@ -168,15 +168,15 @@ function hideUrlInput() {
   urlAdd.setAttribute("aria-label", "添加地址");
 }
 
-function confirmAddUrl() {
+async function confirmAddUrl() {
   const value = urlInput.value.trim();
   hideUrlInput();
   urlInput.value = "";
   if (!value) return;
-  const urls = loadUrls();
+  const urls = await loadUrls();
   if (!urls.includes(value)) {
     urls.push(value);
-    saveUrls(urls);
+    await saveUrls(urls);
   }
   renderUrls(urls, value);
   openUrl(value);
@@ -195,26 +195,27 @@ urlSelect.addEventListener("change", () => {
   urlDel.disabled = selected === DEFAULT_URL;
   openUrl(selected);
 });
-urlDel.addEventListener("click", () => {
+urlDel.addEventListener("click", async () => {
   const selected = urlSelect.value;
   if (selected === DEFAULT_URL) return; // default is protected
-  const urls = loadUrls().filter((u) => u !== selected);
-  saveUrls(urls);
+  const urls = (await loadUrls()).filter((u) => u !== selected);
+  await saveUrls(urls);
   renderUrls(urls, DEFAULT_URL);
   openUrl(DEFAULT_URL);
 });
 
 // Initialise the dropdown with remembered addresses, restoring the last used one.
-const storedLast = (() => {
+async function initUrls() {
+  const urls = await loadUrls();
+  let storedLast = null;
   try {
-    return localStorage.getItem("dsh-last-url");
-  } catch {
-    return null;
-  }
-})();
-const initialUrl = loadUrls().includes(storedLast) ? storedLast : DEFAULT_URL;
-renderUrls(loadUrls(), initialUrl);
-applyUrl(initialUrl);
+    storedLast = await invoke("load_last_url");
+  } catch {}
+  const initialUrl = urls.includes(storedLast) ? storedLast : DEFAULT_URL;
+  renderUrls(urls, initialUrl);
+  applyUrl(initialUrl);
+}
+initUrls();
 
 function appendLine(text) {
   const div = document.createElement("div");
