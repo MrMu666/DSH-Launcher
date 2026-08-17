@@ -27,11 +27,15 @@ const READY_MARKER: &str = "127.0.0.1:3080";
 const EVENT_OUTPUT: &str = "dsh-output";
 const EVENT_READY: &str = "dsh-ready";
 const EVENT_EXIT: &str = "dsh-exit";
+/// Emitted when the currently-selected webview is shown or finishes loading,
+/// so the frontend can hide its "loading" overlay.
+const EVENT_PAGE_SHOWN: &str = "dsh-page-shown";
 
 /// DSH web UI URL, shown in the child webview below the persistent top bar.
 const DSH_URL: &str = "http://127.0.0.1:3080";
-/// Label of the child webview that hosts the DSH page.
-const WEBVIEW_LABEL: &str = "dsh";
+/// Prefix for child-webview labels, one per address (so every page keeps its
+/// instance and cache until the user manually refreshes).
+const WEBVIEW_PREFIX: &str = "dsh-";
 /// Height (logical px) of the launcher top bar. Must match `frontend/src/styles.css`.
 const TOP_BAR_HEIGHT: f64 = 36.0;
 /// Wait after the ready marker before creating the child webview, so the
@@ -158,59 +162,108 @@ fn build_command() -> Command {
     }
 }
 
-/// Adds the child webview that hosts the DSH page, below the persistent top bar.
-/// No-op if the child webview already exists or the main window is gone.
-/// Navigates to whatever address the top-bar dropdown currently points at.
-fn spawn_dsh_webview(app: &AppHandle) {
-    let Some(window) = app.get_window("main") else {
-        return;
-    };
-    if window.get_webview(WEBVIEW_LABEL).is_some() {
-        return;
+/// Deterministic, stable label for a child webview hosting a given address.
+fn webview_label_for(url: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325; // FNV-1a offset basis
+    for b in url.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
     }
+    format!("{WEBVIEW_PREFIX}{h:016x}")
+}
 
+/// Whether a webview label belongs to one of the address-hosted child webviews.
+fn is_dsh_webview(label: &str) -> bool {
+    label.starts_with(WEBVIEW_PREFIX)
+}
+
+/// Hides every address-hosted child webview (used when switching addresses,
+/// when DSH exits, or during a restart) so the launcher's terminal / loading
+/// overlay becomes visible. Instances are kept alive, not destroyed.
+fn hide_all_webviews(app: &AppHandle) {
+    for (label, webview) in app.webviews() {
+        if is_dsh_webview(&label) {
+            let _ = webview.hide();
+        }
+    }
+}
+
+/// Creates (hidden, below the persistent top bar) a child webview for `url`
+/// if one does not already exist. It shows itself once its page finishes
+/// loading and then emits `dsh-page-shown`. `add_child` must run off the main
+/// thread (it blocks on `run_on_main_thread` + channel receive).
+fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
+    let label = webview_label_for(url);
+    if app.get_webview(&label).is_some() {
+        return Ok(());
+    }
+    let Some(window) = app.get_window("main") else {
+        return Err("无主窗口".into());
+    };
+
+    let label_c = label.clone();
+    let url_c = url.to_string();
+    let app_c = app.clone();
+    std::thread::spawn(move || {
+        let Some(parsed) = url_c.parse::<Url>().ok() else {
+            return;
+        };
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
+
+        let builder =
+            tauri::webview::WebviewBuilder::new(label_c.clone(), WebviewUrl::External(parsed))
+                .on_page_load(move |webview, payload| {
+                    if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                        let _ = webview.show();
+                        let _ = app_c.emit(EVENT_PAGE_SHOWN, ());
+                    }
+                });
+        if let Ok(webview) = window.add_child(
+            builder,
+            LogicalPosition::new(0.0, TOP_BAR_HEIGHT),
+            LogicalSize::new(logical.width, (logical.height - TOP_BAR_HEIGHT).max(0.0)),
+        ) {
+            // Keep it hidden while its page loads; the launcher shows a
+            // "loading" overlay until `dsh-page-shown` fires.
+            let _ = webview.hide();
+        }
+    });
+    Ok(())
+}
+
+/// Recomputes every address-hosted child webview's bounds so they always fill
+/// the area below the top bar.
+fn relayout_dsh_webview(window: &tauri::Window) {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
+    for webview in window.webviews() {
+        if is_dsh_webview(webview.label()) {
+            let _ = webview.set_position(LogicalPosition::new(0.0, TOP_BAR_HEIGHT));
+            let _ = webview.set_size(LogicalSize::new(
+                logical.width,
+                (logical.height - TOP_BAR_HEIGHT).max(0.0),
+            ));
+        }
+    }
+}
+
+/// Hides every address-hosted child webview (e.g. when the DSH process exits),
+/// so the terminal log and error status become visible again.
+fn hide_dsh_webviews(app: &AppHandle) {
+    hide_all_webviews(app);
+}
+
+/// Ensures the webview for the currently selected address exists (called when
+/// DSH becomes ready, so the page appears over the terminal).
+fn spawn_target_webview(app: &AppHandle) {
     let target = app
         .state::<AppState>()
         .target_url
         .lock()
         .map(|g| g.clone())
         .unwrap_or_else(|_| DSH_URL.to_string());
-    let Ok(url) = Url::parse(&target) else {
-        return;
-    };
-
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
-
-    let builder =
-        tauri::webview::WebviewBuilder::new(WEBVIEW_LABEL, WebviewUrl::External(url));
-    let _ = window.add_child(
-        builder,
-        LogicalPosition::new(0.0, TOP_BAR_HEIGHT),
-        LogicalSize::new(logical.width, (logical.height - TOP_BAR_HEIGHT).max(0.0)),
-    );
-}
-
-/// Recomputes the child webview bounds so it always fills the area below the top bar.
-fn relayout_dsh_webview(window: &tauri::Window) {
-    let Some(webview) = window.get_webview(WEBVIEW_LABEL) else {
-        return;
-    };
-    let scale = window.scale_factor().unwrap_or(1.0);
-    let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
-    let _ = webview.set_position(LogicalPosition::new(0.0, TOP_BAR_HEIGHT));
-    let _ = webview.set_size(LogicalSize::new(
-        logical.width,
-        (logical.height - TOP_BAR_HEIGHT).max(0.0),
-    ));
-}
-
-/// Closes the child webview (e.g. when the DSH process exits), so the terminal
-/// log and error status become visible again.
-fn close_dsh_webview(app: &AppHandle) {
-    if let Some(webview) = app.get_webview(WEBVIEW_LABEL) {
-        let _ = webview.close();
-    }
+    let _ = ensure_webview(app, &target);
 }
 
 /// Reads lines from a child pipe and forwards them to the frontend.
@@ -230,7 +283,7 @@ where
                         let nav_app = app.clone();
                         thread::spawn(move || {
                             thread::sleep(READY_NAV_DELAY);
-                            spawn_dsh_webview(&nav_app);
+                            spawn_target_webview(&nav_app);
                         });
                     }
                 }
@@ -282,7 +335,7 @@ fn spawn_dsh_child(app: &AppHandle, state: &State<'_, AppState>) -> Result<(), S
                 *guard = None;
                 drop(guard);
                 let _ = exit_app.emit(EVENT_EXIT, code);
-                close_dsh_webview(&exit_app);
+                hide_dsh_webviews(&exit_app);
                 break;
             }
             Ok(None) => {}
@@ -290,7 +343,7 @@ fn spawn_dsh_child(app: &AppHandle, state: &State<'_, AppState>) -> Result<(), S
                 *guard = None;
                 drop(guard);
                 let _ = exit_app.emit(EVENT_EXIT, None::<i32>);
-                close_dsh_webview(&exit_app);
+                hide_dsh_webviews(&exit_app);
                 break;
             }
         }
@@ -319,7 +372,7 @@ fn start_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
 /// confirmation.
 #[tauri::command]
 async fn begin_restart(app: AppHandle) -> Result<(), String> {
-    close_dsh_webview(&app);
+    hide_dsh_webviews(&app);
     Ok(())
 }
 
@@ -362,17 +415,34 @@ async fn restart_dsh(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
     }
 
     // The old child was taken out of state, so the old exit-monitor thread
-    // breaks silently (no spurious `dsh-exit`). Reset readiness and hide the
-    // webview so the terminal becomes visible again.
+    // breaks silently (no spurious `dsh-exit`). Reset readiness, hide every
+    // page so the terminal becomes visible again, and drop the target page so
+    // it re-spawns fresh once the restarted DSH is ready. Other addresses'
+    // pages are kept alive (hidden).
     state.ready.store(false, Ordering::SeqCst);
-    close_dsh_webview(&app);
+    let target = state
+        .target_url
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| DSH_URL.to_string());
+    hide_all_webviews(&app);
+    if let Some(wv) = app.get_webview(&webview_label_for(&target)) {
+        let _ = wv.close();
+    }
     spawn_dsh_child(&app, &state)
 }
 
-/// Force-reloads the DSH webview from the top bar's refresh button.
+/// Force-reloads the currently selected webview from the top bar's refresh button.
 #[tauri::command]
-fn force_reload(app: AppHandle) -> Result<(), String> {
-    let webview = app.get_webview(WEBVIEW_LABEL).ok_or("DSH 网页尚未加载")?;
+fn force_reload(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let target = state
+        .target_url
+        .lock()
+        .map_err(|_| "状态锁异常".to_string())?
+        .clone();
+    let webview = app
+        .get_webview(&webview_label_for(&target))
+        .ok_or("网页尚未加载")?;
     webview
         .eval("window.location.reload(true)")
         .map_err(|e| e.to_string())
@@ -414,21 +484,31 @@ async fn open_dsh_url(
     app: AppHandle,
     state: State<'_, AppState>,
     url: String,
-) -> Result<(), String> {
-    let parsed = resolve_target(&state, &url)?;
+) -> Result<bool, String> {
+    let _ = resolve_target(&state, &url)?;
+    let normalized = state
+        .target_url
+        .lock()
+        .map_err(|_| "状态锁异常".to_string())?
+        .clone();
+    let label = webview_label_for(&normalized);
 
-    if app.get_webview(WEBVIEW_LABEL).is_none() {
-        // `add_child` blocks on `run_on_main_thread` + channel receive, so it
-        // must never run on the main thread.
-        let tapp = app.clone();
-        std::thread::spawn(move || spawn_dsh_webview(&tapp))
-            .join()
-            .map_err(|_| "创建子 WebView 线程异常".to_string())?;
+    // Switching addresses: hide every page (the old one disappears right away;
+    // the launcher shows a "loading" overlay until `dsh-page-shown` fires).
+    hide_all_webviews(&app);
+
+    if let Some(webview) = app.get_webview(&label) {
+        // Page already exists — restore its preserved instance instantly.
+        let _ = webview.show();
+        let _ = webview.set_focus();
+        let _ = app.emit(EVENT_PAGE_SHOWN, ());
+        return Ok(true);
     }
 
-    let webview = app.get_webview(WEBVIEW_LABEL).ok_or("子 WebView 创建失败")?;
-    webview.navigate(parsed).map_err(|e| e.to_string())?;
-    Ok(())
+    // New address — create its webview (hidden until the page finishes
+    // loading; then it shows itself and emits `dsh-page-shown`).
+    ensure_webview(&app, &normalized)?;
+    Ok(false)
 }
 
 fn run_output(cmdline: &str) -> Option<std::process::Output> {

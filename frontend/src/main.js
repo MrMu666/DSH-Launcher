@@ -8,6 +8,14 @@ const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const refreshBtn = document.getElementById("refresh-btn");
 const restartBtn = document.getElementById("restart-btn");
+const pageLoading = document.getElementById("page-loading");
+
+function showPageLoading() {
+  pageLoading.hidden = false;
+}
+function hidePageLoading() {
+  pageLoading.hidden = true;
+}
 const restartConfirm = document.getElementById("restart-confirm");
 const confirmYes = document.getElementById("confirm-yes");
 const confirmNo = document.getElementById("confirm-no");
@@ -123,17 +131,19 @@ async function applyUrl(url) {
   }
 }
 
-// Open an address in the DSH webview right now (creates the webview on demand,
-// so a remote ip:3080 works even without local DSH).
+// Open an address in the DSH webview right now. Switching hides the previous
+// page immediately and shows a "loading" overlay until the new page is ready;
+// already-visited pages restore their preserved instance instantly.
 async function openUrl(url) {
   rememberUrl(url);
+  showPageLoading();
   try {
-    await invoke("open_dsh_url", { url });
-    // A page is now showing — the refresh button must become clickable even
-    // when this is a remote address and `dsh-ready` never fired for it.
+    const cached = await invoke("open_dsh_url", { url });
     pageOpen = true;
+    if (cached) hidePageLoading(); // instance already preserved — restore done
     updateButtons();
   } catch (err) {
+    hidePageLoading();
     setStatus("error", "地址打开失败");
     appendLine("✘ 地址打开失败：" + String(err));
   }
@@ -222,6 +232,10 @@ function setStatus(state, text) {
 async function boot() {
   try {
     await listen("dsh-output", (event) => appendLine(event.payload));
+
+    // A page finished loading (or a preserved page was restored) — hide the
+    // "loading" overlay.
+    await listen("dsh-page-shown", () => hidePageLoading());
 
     await listen("dsh-ready", () => {
       setStatus("ready", "服务已就绪，网页已打开");
