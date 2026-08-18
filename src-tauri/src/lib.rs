@@ -97,6 +97,10 @@ const DSH_URL: &str = "http://127.0.0.1:3080";
 const WEBVIEW_PREFIX: &str = "dsh-";
 /// Height (logical px) of the launcher top bar. Must match `frontend/src/styles.css`.
 const TOP_BAR_HEIGHT: f64 = 36.0;
+/// Below this content height, the window is treated as being disconnected /
+/// minimized over RDP and the webviews are left at their last size (guard
+/// against WebView2 hanging on a degenerate resize; see `relayout_dsh_webview`).
+const MIN_WEBVIEW_HEIGHT: f64 = 180.0;
 /// Wait after the ready marker before creating the child webview, so the
 /// freshly-started server has a moment to actually accept requests.
 const READY_NAV_DELAY: Duration = Duration::from_millis(700);
@@ -274,7 +278,15 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
             return;
         };
         let scale = window.scale_factor().unwrap_or(1.0);
-        let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
+        let mut logical: LogicalSize<f64> =
+            window.inner_size().unwrap_or_default().to_logical(scale);
+        // Guard: never create the webview at a degenerate (RDP-disconnected)
+        // size — use a sane default so WebView2 doesn't redraw into a tiny box.
+        let avail_h = logical.height - TOP_BAR_HEIGHT;
+        if logical.width < 200.0 || avail_h < MIN_WEBVIEW_HEIGHT {
+            logical.width = 1280.0;
+            logical.height = MIN_WEBVIEW_HEIGHT + TOP_BAR_HEIGHT;
+        }
 
         let builder =
             tauri::webview::WebviewBuilder::new(label_c.clone(), WebviewUrl::External(parsed))
@@ -306,22 +318,36 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
 
 /// Recomputes every address-hosted child webview's bounds so they always fill
 /// the area below the top bar.
+///
+/// RDP freeze guard: when the window is resized to a very small size (e.g.
+/// 138x15 during an RDP disconnect/minimize), WebView2 can hang its own
+/// redraw/compositor on the dirty size, wedging the UI thread after our resize
+/// handler returns. So we skip re-sizing the webviews until the window is
+/// meaningfully large again — breaking that trigger chain.
 fn relayout_dsh_webview(window: &tauri::Window) {
     dlog::log("relayout_dsh_webview: begin");
     let scale = window.scale_factor().unwrap_or(1.0);
     let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
+    let w = logical.width;
+    let h = logical.height - TOP_BAR_HEIGHT;
+    // Guard: a tiny window height corresponds to an RDP disconnect / minimize.
+    // Leave the webviews at their last (valid) size — never hand WebView2 a
+    // degenerate geometry to redraw.
+    if h < MIN_WEBVIEW_HEIGHT {
+        dlog::log(&format!(
+            "relayout_dsh_webview: skip (window too small h={h:.0})"
+        ));
+        return;
+    }
     for webview in window.webviews() {
         if is_dsh_webview(webview.label()) {
-            let w = webview.label().to_string();
-            dlog::log(&format!("relayout_dsh_webview: set_position {w} begin"));
+            let lbl = webview.label().to_string();
+            dlog::log(&format!("relayout_dsh_webview: set_position {lbl} begin"));
             let _ = webview.set_position(LogicalPosition::new(0.0, TOP_BAR_HEIGHT));
-            dlog::log(&format!("relayout_dsh_webview: set_position {w} done"));
-            dlog::log(&format!("relayout_dsh_webview: set_size {w} begin"));
-            let _ = webview.set_size(LogicalSize::new(
-                logical.width,
-                (logical.height - TOP_BAR_HEIGHT).max(0.0),
-            ));
-            dlog::log(&format!("relayout_dsh_webview: set_size {w} done"));
+            dlog::log(&format!("relayout_dsh_webview: set_position {lbl} done"));
+            dlog::log(&format!("relayout_dsh_webview: set_size {lbl} begin"));
+            let _ = webview.set_size(LogicalSize::new(w, h));
+            dlog::log(&format!("relayout_dsh_webview: set_size {lbl} done"));
         }
     }
     dlog::log("relayout_dsh_webview: end");
