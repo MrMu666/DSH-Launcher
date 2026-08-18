@@ -18,6 +18,65 @@ use tauri::{
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
+/// Minimal, thread-safe file logger used to diagnose the RDP/resize freeze.
+/// Writes one line per call to the app's cache dir (debug.log) so we can see
+/// exactly which step the UI thread was in when it last stopped responding.
+mod dlog {
+    use std::{
+        fs::OpenOptions,
+        sync::{Mutex, OnceLock},
+    };
+
+    fn file() -> &'static Mutex<std::fs::File> {
+        static F: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+        F.get_or_init(|| {
+            let home = std::env::var("LOCALAPPDATA").unwrap_or_default();
+            let dir = std::path::Path::new(&home).join("com.dsh.launcher");
+            let _ = std::fs::create_dir_all(&dir);
+            let f = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("debug.log"))
+                .unwrap_or_else(|_| {
+                    OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .open("debug.log")
+                        .unwrap()
+                });
+            Mutex::new(f)
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    fn timestamp() -> String {
+        let ms = unsafe {
+            windows_sys::Win32::System::SystemInformation::GetTickCount64()
+        };
+        format!("t+{}ms", ms)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn timestamp() -> String {
+        "t+?".to_string()
+    }
+
+    pub fn log(msg: &str) {
+        let ts = timestamp();
+        if let Ok(mut f) = file().lock() {
+            use std::io::Write as _;
+            let _ = writeln!(
+                f,
+                "[{}][{:?}] {}",
+                ts,
+                std::thread::current().name(),
+                msg
+            );
+            let _ = f.flush();
+        }
+    }
+}
+
 /// CREATE_NO_WINDOW: run console-subsystem children without a visible window.
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -181,11 +240,16 @@ fn is_dsh_webview(label: &str) -> bool {
 /// when DSH exits, or during a restart) so the launcher's terminal / loading
 /// overlay becomes visible. Instances are kept alive, not destroyed.
 fn hide_all_webviews(app: &AppHandle) {
+    dlog::log("hide_all_webviews: begin");
     for (label, webview) in app.webviews() {
         if is_dsh_webview(&label) {
+            let l = label.clone();
+            dlog::log(&format!("hide_all_webviews: hide {l} begin"));
             let _ = webview.hide();
+            dlog::log(&format!("hide_all_webviews: hide {l} done"));
         }
     }
+    dlog::log("hide_all_webviews: end");
 }
 
 /// Creates (hidden, below the persistent top bar) a child webview for `url`
@@ -204,6 +268,7 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
     let label_c = label.clone();
     let url_c = url.to_string();
     let app_c = app.clone();
+    dlog::log(&format!("ensure_webview: spawning child thread for {label_c}"));
     std::thread::spawn(move || {
         let Some(parsed) = url_c.parse::<Url>().ok() else {
             return;
@@ -215,18 +280,25 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
             tauri::webview::WebviewBuilder::new(label_c.clone(), WebviewUrl::External(parsed))
                 .on_page_load(move |webview, payload| {
                     if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                        dlog::log("on_page_load: Finished, showing webview");
                         let _ = webview.show();
                         let _ = app_c.emit(EVENT_PAGE_SHOWN, ());
+                        dlog::log("on_page_load: shown");
                     }
                 });
+        dlog::log("ensure_webview: add_child begin");
         if let Ok(webview) = window.add_child(
             builder,
             LogicalPosition::new(0.0, TOP_BAR_HEIGHT),
             LogicalSize::new(logical.width, (logical.height - TOP_BAR_HEIGHT).max(0.0)),
         ) {
+            dlog::log("ensure_webview: add_child done");
             // Keep it hidden while its page loads; the launcher shows a
             // "loading" overlay until `dsh-page-shown` fires.
             let _ = webview.hide();
+            dlog::log("ensure_webview: hidden after add");
+        } else {
+            dlog::log("ensure_webview: add_child FAILED");
         }
     });
     Ok(())
@@ -235,17 +307,24 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
 /// Recomputes every address-hosted child webview's bounds so they always fill
 /// the area below the top bar.
 fn relayout_dsh_webview(window: &tauri::Window) {
+    dlog::log("relayout_dsh_webview: begin");
     let scale = window.scale_factor().unwrap_or(1.0);
     let logical: LogicalSize<f64> = window.inner_size().unwrap_or_default().to_logical(scale);
     for webview in window.webviews() {
         if is_dsh_webview(webview.label()) {
+            let w = webview.label().to_string();
+            dlog::log(&format!("relayout_dsh_webview: set_position {w} begin"));
             let _ = webview.set_position(LogicalPosition::new(0.0, TOP_BAR_HEIGHT));
+            dlog::log(&format!("relayout_dsh_webview: set_position {w} done"));
+            dlog::log(&format!("relayout_dsh_webview: set_size {w} begin"));
             let _ = webview.set_size(LogicalSize::new(
                 logical.width,
                 (logical.height - TOP_BAR_HEIGHT).max(0.0),
             ));
+            dlog::log(&format!("relayout_dsh_webview: set_size {w} done"));
         }
     }
+    dlog::log("relayout_dsh_webview: end");
 }
 
 /// Hides every address-hosted child webview (e.g. when the DSH process exits),
@@ -445,7 +524,9 @@ fn force_reload(app: AppHandle, state: State<'_, AppState>) -> Result<(), String
     let webview = app
         .get_webview(&webview_label_for(&target))
         .ok_or("网页尚未加载")?;
+    dlog::log("force_reload: hide begin");
     let _ = webview.hide();
+    dlog::log("force_reload: hide done, reloading");
     webview
         .eval("window.location.reload(true)")
         .map_err(|e| e.to_string())
@@ -498,11 +579,15 @@ async fn open_dsh_url(
 
     // Switching addresses: hide every page (the old one disappears right away;
     // the launcher shows a "loading" overlay until `dsh-page-shown` fires).
+    dlog::log(&format!("open_dsh_url: opening {normalized}"));
     hide_all_webviews(&app);
+    dlog::log("open_dsh_url: hide_all done");
 
     if let Some(webview) = app.get_webview(&label) {
         // Page already exists — restore its preserved instance instantly.
+        dlog::log(&format!("open_dsh_url: cached webview show {label}"));
         let _ = webview.show();
+        dlog::log("open_dsh_url: show done");
         let _ = webview.set_focus();
         let _ = app.emit(EVENT_PAGE_SHOWN, ());
         return Ok(true);
@@ -510,6 +595,7 @@ async fn open_dsh_url(
 
     // New address — create its webview (hidden until the page finishes
     // loading; then it shows itself and emits `dsh-page-shown`).
+    dlog::log(&format!("open_dsh_url: creating webview {label}"));
     ensure_webview(&app, &normalized)?;
     Ok(false)
 }
@@ -748,11 +834,18 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .tooltip("DSH 启动器")
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => show_main_window(app),
-                    "quit" => app.exit(0),
+                    "show" => {
+                        dlog::log("tray menu: show clicked");
+                        show_main_window(app);
+                    }
+                    "quit" => {
+                        dlog::log("tray menu: quit clicked");
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
+                    dlog::log(&format!("tray icon event: {event:?}"));
                     match event {
                         TrayIconEvent::Click {
                             button: MouseButton::Left,
@@ -773,18 +866,38 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match event {
-                WindowEvent::Resized(_) => relayout_dsh_webview(window),
+                WindowEvent::Resized(size) => {
+                    dlog::log(&format!("on_window_event: Resized {size:?}"));
+                    relayout_dsh_webview(window);
+                    dlog::log("on_window_event: Resized handled");
+                }
                 WindowEvent::CloseRequested { api, .. } => {
+                    dlog::log("on_window_event: CloseRequested");
                     // Closing hides to the tray; the app keeps running in the
                     // background. Only the tray menu's "退出" quits the app.
                     api.prevent_close();
+                    dlog::log("on_window_event: prevent_close done, hiding");
                     let _ = window.hide();
+                    dlog::log("on_window_event: hide done");
                 }
                 _ => {}
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
+
+    // Start a fresh debug log each run so a freeze's trace is easy to read.
+    {
+        let home = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let path = std::path::Path::new(&home)
+            .join("com.dsh.launcher")
+            .join("debug.log");
+        let _ = std::fs::write(&path, b"");
+        dlog::log(&format!(
+            "=== 启动 (pid {}) ===",
+            std::process::id()
+        ));
+    }
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
