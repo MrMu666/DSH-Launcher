@@ -290,6 +290,24 @@ fn ensure_webview(app: &AppHandle, url: &str) -> Result<(), String> {
 
         let builder =
             tauri::webview::WebviewBuilder::new(label_c.clone(), WebviewUrl::External(parsed))
+                // RDP-freeze countermeasure (dump-confirmed): after an RDP
+                // resolution switch the UI thread wedges inside TSF/UIA
+                // cross-process calls while WebView2 handles the resize
+                // (MicrosoftEdge/WebView2Feedback #5590). Disabling the
+                // *renderer* accessibility tree makes UIA queries fail fast
+                // instead of hanging, cutting that deadlock path. Typing/IME
+                // is unaffected — Chromium keeps the IME text pipeline
+                // separate from accessibility.
+                //
+                // Warning (tauri docs): setting additional_browser_args
+                // REPLACES wry's defaults
+                // (--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection
+                // + autoplay policy), so they are re-added verbatim here.
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                     --autoplay-policy=no-user-gesture-required \
+                     --disable-renderer-accessibility",
+                )
                 .on_page_load(move |webview, payload| {
                     if payload.event() == tauri::webview::PageLoadEvent::Finished {
                         dlog::log("on_page_load: Finished, showing webview");

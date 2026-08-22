@@ -18,13 +18,15 @@
         "minHeight": 480,
         "center": true,
         "resizable": true,
-        "decorations": false
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-renderer-accessibility"
       }
     ],
     "security": {
       "csp": null
     }
   },
+  "plugins": {},
   "bundle": {
     "active": true,
     "targets": "all",
